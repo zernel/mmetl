@@ -444,6 +444,11 @@ func addZipFileToPost(file *SlackFile, uploads map[string]*zip.File, post *Inter
 		return errors.Errorf("failed to retrieve file with id %s", file.Id)
 	}
 
+	// If the file name is still empty, use the original file name from the zip entry.
+	if file.Name == "" {
+		file.Name = path.Base(zipFile.Name)
+	}
+
 	zipFileReader, err := zipFile.Open()
 	if err != nil {
 		return errors.Wrapf(err, "failed to open attachment from zipfile for id %s", file.Id)
@@ -505,14 +510,21 @@ func (t *Transformer) AddFilesToPost(post *SlackPost, skipAttachments bool, slac
 		return
 	}
 	if post.File != nil {
+		t.Logger.Debugf("[DEBUG] Adding file to post: %v", post.File)
 		if err := addFileToPost(post.File, slackExport.Uploads, newPost, attachmentsDir, allowDownload); err != nil {
 			t.Logger.WithError(err).Error("Failed to add file to post")
 		}
 	} else if post.Files != nil {
+		t.Logger.Debugf("[DEBUG] Adding files to post: %v", post.Files)
 		for _, file := range post.Files {
 			if file.Name == "" {
-				t.Logger.Warnf("Not able to access the file %s as file access is denied so skipping", file.Id)
-				continue
+				if zipFile, ok := slackExport.Uploads[file.Id]; ok {
+					file.Name = path.Base(zipFile.Name)
+					t.Logger.Debugf("Recover filenames from a zip file: %s -> %s", file.Id, file.Name)
+				} else {
+					t.Logger.Warnf("Unable to retrieve the filename for file %s, the file may not exist in the zip.", file.Id)
+					continue
+				}
 			}
 			if err := addFileToPost(file, slackExport.Uploads, newPost, attachmentsDir, allowDownload); err != nil {
 				t.Logger.WithError(err).Error("Failed to add file to post")
